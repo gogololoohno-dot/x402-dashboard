@@ -233,7 +233,7 @@ export default function X402Dashboard() {
               {BADGE("HIGH CONVICTION","BULLISH")} {BADGE("Early Stage","NEUTRAL")} {BADGE("ARTEMIS PRIMARY","HIGH")}
             </div>
           </div>
-          <button onClick={()=>sendPrompt("Based on Artemis-adjusted data showing Virtuals ACP drives 95%+ of volume and pure micropayments are $28K/day — what's the real risk-adjusted investment thesis here?")} style={{fontSize:"12px",padding:"7px 14px"}}>Full alpha thesis ↗</button>
+          <button onClick={()=>window.open("https://docs.google.com/spreadsheets/d/1z2EtDU6YXownVQkX5VL2tqvbo2TcOv4BJydraXVzcnE","_blank")} style={{fontSize:"12px",padding:"7px 14px"}}>View Artemis Data ↗</button>
         </div>
         <div style={{display:"flex",gap:"2px",flexWrap:"wrap"}}>
           {TABS.map(t=><button key={t} onClick={()=>setTab(t)} style={{padding:"6px 14px",fontSize:"12px",fontWeight:tab===t?500:400,background:tab===t?"var(--color-background-secondary)":"transparent",border:tab===t?"0.5px solid var(--color-border-secondary)":"0.5px solid transparent",borderRadius:"var(--border-radius-md)",cursor:"pointer",color:tab===t?"var(--color-text-primary)":"var(--color-text-secondary)"}}>{t}</button>)}
