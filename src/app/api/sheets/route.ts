@@ -37,6 +37,7 @@ function parseTimeSeriesData(rows: string[][]) {
 
 async function getAccessToken(): Promise<string> {
   let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
+  const originalKey = privateKey;
 
   // Vercel may store the key in different formats:
   // 1. With actual newlines (if pasted properly)
@@ -53,7 +54,13 @@ async function getAccessToken(): Promise<string> {
 
   // Validate the key format
   if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
-    throw new Error(`Invalid private key format. Key length: ${privateKey.length}, starts with: ${privateKey.substring(0, 50)}`);
+    throw new Error(`Invalid private key format. Key length: ${privateKey.length}, starts with: ${JSON.stringify(privateKey.substring(0, 80))}`);
+  }
+
+  // Check if key is valid PEM by counting lines
+  const lines = privateKey.split('\n');
+  if (lines.length < 5) {
+    throw new Error(`Private key has only ${lines.length} lines after processing. Original had: ${originalKey.split('\n').length} lines. First line: ${JSON.stringify(lines[0])}`);
   }
 
   const clientEmail = process.env.GOOGLE_CLIENT_EMAIL || '';
