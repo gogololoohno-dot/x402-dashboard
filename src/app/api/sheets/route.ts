@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { google } from 'googleapis';
+import jwt from 'jsonwebtoken';
 
 const SPREADSHEET_ID = '1z2EtDU6YXownVQkX5VL2tqvbo2TcOv4BJydraXVzcnE';
 
@@ -35,54 +35,91 @@ function parseTimeSeriesData(rows: string[][]) {
     .filter(point => !isNaN(point.v));
 }
 
+async function getAccessToken(): Promise<string> {
+  let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
+
+  // Handle escaped newlines
+  if (privateKey.includes('\\n')) {
+    privateKey = privateKey.replace(/\\n/g, '\n');
+  }
+
+  const clientEmail = process.env.GOOGLE_CLIENT_EMAIL || '';
+
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: clientEmail,
+    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600,
+  };
+
+  // Create JWT with RS256
+  const token = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
+
+  // Exchange JWT for access token
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: token,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Token exchange failed: ${error}`);
+  }
+
+  const data = await response.json();
+  return data.access_token;
+}
+
+async function fetchSheet(accessToken: string, sheetName: string, range: string = 'A:C') {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!${range}`;
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${sheetName}: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data.values || [];
+}
+
 export async function GET() {
   try {
-    // Handle private key
-    let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
-    if (privateKey.includes('\\n')) {
-      privateKey = privateKey.replace(/\\n/g, '\n');
-    }
-
-    const auth = new google.auth.GoogleAuth({
-      credentials: {
-        type: 'service_account',
-        project_id: process.env.GOOGLE_PROJECT_ID,
-        private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-        private_key: privateKey,
-        client_email: process.env.GOOGLE_CLIENT_EMAIL,
-        client_id: process.env.GOOGLE_CLIENT_ID,
-      },
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
-
-    const sheets = google.sheets({ version: 'v4', auth });
+    const accessToken = await getAccessToken();
 
     // Fetch all sheets in parallel
-    const [volumeRes, txnsRes, buyersRes, sellersRes, gamedRes, avgTxnRes, snapshotRes] = await Promise.all([
-      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${SHEET_NAMES.volume}!A:C` }),
-      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${SHEET_NAMES.txns}!A:C` }),
-      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${SHEET_NAMES.buyers}!A:C` }),
-      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${SHEET_NAMES.sellers}!A:C` }),
-      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${SHEET_NAMES.gamed}!A:C` }),
-      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${SHEET_NAMES.avg_txn}!A:C` }),
-      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${SHEET_NAMES.snapshot}!A:M` }),
+    const [volumeRows, txnsRows, buyersRows, sellersRows, gamedRows, avgTxnRows, snapshotRows] = await Promise.all([
+      fetchSheet(accessToken, SHEET_NAMES.volume),
+      fetchSheet(accessToken, SHEET_NAMES.txns),
+      fetchSheet(accessToken, SHEET_NAMES.buyers),
+      fetchSheet(accessToken, SHEET_NAMES.sellers),
+      fetchSheet(accessToken, SHEET_NAMES.gamed),
+      fetchSheet(accessToken, SHEET_NAMES.avg_txn),
+      fetchSheet(accessToken, SHEET_NAMES.snapshot, 'A:M'),
     ]);
 
     // Parse time series data
-    const volume = parseTimeSeriesData((volumeRes.data.values || []).slice(1));
-    const txns = parseTimeSeriesData((txnsRes.data.values || []).slice(1));
-    const buyers = parseTimeSeriesData((buyersRes.data.values || []).slice(1));
-    const sellers = parseTimeSeriesData((sellersRes.data.values || []).slice(1));
-    const gamed = parseTimeSeriesData((gamedRes.data.values || []).slice(1)).map(p => ({
+    const volume = parseTimeSeriesData(volumeRows.slice(1));
+    const txns = parseTimeSeriesData(txnsRows.slice(1));
+    const buyers = parseTimeSeriesData(buyersRows.slice(1));
+    const sellers = parseTimeSeriesData(sellersRows.slice(1));
+    const gamed = parseTimeSeriesData(gamedRows.slice(1)).map(p => ({
       ...p,
       v: p.v * 100,
     }));
-    const avgTxn = parseTimeSeriesData((avgTxnRes.data.values || []).slice(1));
+    const avgTxn = parseTimeSeriesData(avgTxnRows.slice(1));
 
     // Parse snapshot data
-    const snapshotRows = snapshotRes.data.values || [];
-    const x402Row = snapshotRows.find(row => row[0] === 'x402') || [];
-    const mppRow = snapshotRows.find(row => row[0] === 'MPP') || [];
+    const x402Row = snapshotRows.find((row: string[]) => row[0] === 'x402') || [];
+    const mppRow = snapshotRows.find((row: string[]) => row[0] === 'MPP') || [];
 
     const snapshot = {
       x402: {
