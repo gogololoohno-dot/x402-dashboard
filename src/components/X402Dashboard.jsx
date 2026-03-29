@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -208,8 +208,30 @@ const axTick={fontSize:9,fill:"var(--color-text-tertiary)",fontFamily:"var(--fon
 const grid=<CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-tertiary)" vertical={false}/>
 const tip={contentStyle:{background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-secondary)",borderRadius:"8px",fontSize:"11px",fontFamily:"var(--font-mono)"},cursor:{stroke:"var(--color-border-secondary)",strokeWidth:1}}
 
-export default function X402Dashboard({ artemisData, error }) {
+export default function X402Dashboard() {
   const [tab,setTab]=useState("Overview")
+  const [artemisData, setArtemisData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  // Fetch data from API on mount
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const res = await fetch('/api/sheets')
+        if (!res.ok) throw new Error('Failed to fetch')
+        const data = await res.json()
+        if (data.error) throw new Error(data.message || 'API error')
+        setArtemisData(data)
+      } catch (err) {
+        console.error('Fetch error:', err)
+        setError(err.message)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchData()
+  }, [])
 
   // Use live data if available, otherwise fallback to static
   const volDaily = artemisData?.volume?.length > 0 ? artemisData.volume : fallbackVolDaily
@@ -238,16 +260,14 @@ export default function X402Dashboard({ artemisData, error }) {
   return (
     <div style={{fontFamily:"var(--font-sans)",background:"var(--color-background-tertiary)",minHeight:"100vh"}}>
       {/* Data Status Banner */}
-      {(artemisData || error) && (
-        <div style={{background:error ? "var(--color-background-danger)" : "var(--color-background-success)",borderBottom:`0.5px solid ${error ? "var(--color-border-danger)" : "var(--color-border-success)"}`,padding:"6px 24px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <p style={{margin:0,fontSize:"10px",fontFamily:"var(--font-mono)",color:error ? "var(--color-text-danger)" : "var(--color-text-success)"}}>
-            {error ? `⚠ ${error} — showing cached data` : `✓ LIVE DATA · Last updated: ${lastUpdated} · ISR revalidation: 24h`}
-          </p>
-          {artemisData?.volume?.length > 0 && (
-            <p style={{margin:0,fontSize:"10px",fontFamily:"var(--font-mono)",color:"var(--color-text-success)"}}>{artemisData.volume.length} data points loaded</p>
-          )}
-        </div>
-      )}
+      <div style={{background:loading ? "var(--color-background-secondary)" : error ? "var(--color-background-danger)" : "var(--color-background-success)",borderBottom:`0.5px solid ${loading ? "var(--color-border-secondary)" : error ? "var(--color-border-danger)" : "var(--color-border-success)"}`,padding:"6px 24px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <p style={{margin:0,fontSize:"10px",fontFamily:"var(--font-mono)",color:loading ? "var(--color-text-secondary)" : error ? "var(--color-text-danger)" : "var(--color-text-success)"}}>
+          {loading ? "◐ Loading live data from Artemis..." : error ? `⚠ ${error} — showing cached data` : `✓ LIVE DATA · Last updated: ${lastUpdated} · Cache: 24h`}
+        </p>
+        {!loading && artemisData?.volume?.length > 0 && (
+          <p style={{margin:0,fontSize:"10px",fontFamily:"var(--font-mono)",color:"var(--color-text-success)"}}>{artemisData.volume.length} data points</p>
+        )}
+      </div>
       {/* Header */}
       <div style={{background:"var(--color-background-primary)",borderBottom:"0.5px solid var(--color-border-tertiary)",padding:"16px 24px"}}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:"10px",marginBottom:"14px"}}>
