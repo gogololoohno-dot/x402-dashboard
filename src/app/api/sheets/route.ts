@@ -37,11 +37,25 @@ function parseTimeSeriesData(rows: string[][]) {
 
 async function getAccessToken(): Promise<string> {
   let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
+  const originalLength = privateKey.length;
 
-  // Handle escaped newlines
+  // Handle escaped newlines - the literal string \n (backslash + n)
+  // In .env files, \n is stored as literal characters, not escape sequences
+  privateKey = privateKey.split(String.raw`\n`).join('\n');
+
+  // Also handle if it somehow has double-escaped newlines
   if (privateKey.includes('\\n')) {
     privateKey = privateKey.replace(/\\n/g, '\n');
   }
+
+  // Debug logging
+  console.log('Private key debug:', {
+    originalLength,
+    processedLength: privateKey.length,
+    hasBegin: privateKey.includes('-----BEGIN PRIVATE KEY-----'),
+    hasEnd: privateKey.includes('-----END PRIVATE KEY-----'),
+    first30: privateKey.substring(0, 30),
+  });
 
   const clientEmail = process.env.GOOGLE_CLIENT_EMAIL || '';
 
