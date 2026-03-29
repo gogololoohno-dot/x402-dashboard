@@ -37,25 +37,24 @@ function parseTimeSeriesData(rows: string[][]) {
 
 async function getAccessToken(): Promise<string> {
   let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
-  const originalLength = privateKey.length;
 
-  // Handle escaped newlines - the literal string \n (backslash + n)
-  // In .env files, \n is stored as literal characters, not escape sequences
-  privateKey = privateKey.split(String.raw`\n`).join('\n');
+  // Vercel may store the key in different formats:
+  // 1. With actual newlines (if pasted properly)
+  // 2. With literal \n strings (if copied from JSON)
+  // Handle all cases by normalizing to actual newlines
 
-  // Also handle if it somehow has double-escaped newlines
-  if (privateKey.includes('\\n')) {
+  // First, check if the key already has proper PEM format with real newlines
+  const hasRealNewlines = privateKey.includes('-----BEGIN PRIVATE KEY-----\n');
+
+  if (!hasRealNewlines) {
+    // Try replacing literal \n sequences
     privateKey = privateKey.replace(/\\n/g, '\n');
   }
 
-  // Debug logging
-  console.log('Private key debug:', {
-    originalLength,
-    processedLength: privateKey.length,
-    hasBegin: privateKey.includes('-----BEGIN PRIVATE KEY-----'),
-    hasEnd: privateKey.includes('-----END PRIVATE KEY-----'),
-    first30: privateKey.substring(0, 30),
-  });
+  // Validate the key format
+  if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
+    throw new Error(`Invalid private key format. Key length: ${privateKey.length}, starts with: ${privateKey.substring(0, 50)}`);
+  }
 
   const clientEmail = process.env.GOOGLE_CLIENT_EMAIL || '';
 
