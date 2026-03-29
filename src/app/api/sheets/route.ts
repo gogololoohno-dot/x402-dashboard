@@ -36,19 +36,21 @@ function parseTimeSeriesData(rows: string[][]) {
 }
 
 async function getAccessToken(): Promise<string> {
-  let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
+  // Try base64-encoded key first, then fall back to regular env var
+  const b64Key = process.env.GOOGLE_PRIVATE_KEY_B64;
+  let privateKey: string;
 
-  // Vercel may store the key in different formats:
-  // 1. With actual newlines (if pasted properly)
-  // 2. With literal \n strings (if copied from JSON)
-  // Handle all cases by normalizing to actual newlines
+  if (b64Key) {
+    // Decode from base64
+    privateKey = Buffer.from(b64Key, 'base64').toString('utf-8');
+  } else {
+    // Fall back to regular env var with newline handling
+    privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
 
-  // First, check if the key already has proper PEM format with real newlines
-  const hasRealNewlines = privateKey.includes('-----BEGIN PRIVATE KEY-----\n');
-
-  if (!hasRealNewlines) {
-    // Try replacing literal \n sequences
-    privateKey = privateKey.replace(/\\n/g, '\n');
+    // Handle literal \n sequences
+    if (!privateKey.includes('-----BEGIN PRIVATE KEY-----\n')) {
+      privateKey = privateKey.replace(/\\n/g, '\n');
+    }
   }
 
   // Validate the key format
