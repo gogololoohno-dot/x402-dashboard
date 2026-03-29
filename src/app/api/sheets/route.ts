@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import jwt from 'jsonwebtoken';
+import { SignJWT, importPKCS8 } from 'jose';
 
 const SPREADSHEET_ID = '1z2EtDU6YXownVQkX5VL2tqvbo2TcOv4BJydraXVzcnE';
 
@@ -37,7 +37,6 @@ function parseTimeSeriesData(rows: string[][]) {
 
 async function getAccessToken(): Promise<string> {
   let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
-  const originalKey = privateKey;
 
   // Vercel may store the key in different formats:
   // 1. With actual newlines (if pasted properly)
@@ -57,25 +56,23 @@ async function getAccessToken(): Promise<string> {
     throw new Error(`Invalid private key format. Key length: ${privateKey.length}, starts with: ${JSON.stringify(privateKey.substring(0, 80))}`);
   }
 
-  // Check if key is valid PEM by counting lines
-  const lines = privateKey.split('\n');
-  if (lines.length < 5) {
-    throw new Error(`Private key has only ${lines.length} lines after processing. Original had: ${originalKey.split('\n').length} lines. First line: ${JSON.stringify(lines[0])}`);
-  }
-
   const clientEmail = process.env.GOOGLE_CLIENT_EMAIL || '';
 
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: clientEmail,
-    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
-    aud: 'https://oauth2.googleapis.com/token',
-    iat: now,
-    exp: now + 3600,
-  };
+  // Import the private key using jose
+  const key = await importPKCS8(privateKey, 'RS256');
 
-  // Create JWT with RS256
-  const token = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
+  const now = Math.floor(Date.now() / 1000);
+
+  // Create JWT with RS256 using jose
+  const token = await new SignJWT({
+    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
+  })
+    .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+    .setIssuer(clientEmail)
+    .setAudience('https://oauth2.googleapis.com/token')
+    .setIssuedAt(now)
+    .setExpirationTime(now + 3600)
+    .sign(key);
 
   // Exchange JWT for access token
   const response = await fetch('https://oauth2.googleapis.com/token', {
