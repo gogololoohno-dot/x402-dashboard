@@ -1,16 +1,19 @@
-"use client";
+import { fetchArtemisData } from '@/lib/sheets';
+import X402Dashboard from '@/components/X402Dashboard';
 
-import dynamic from 'next/dynamic';
+// ISR: Revalidate every 24 hours (86400 seconds)
+export const revalidate = 86400;
 
-const X402Dashboard = dynamic(() => import('@/components/X402Dashboard'), {
-  ssr: false,
-  loading: () => (
-    <div className="flex items-center justify-center min-h-screen bg-[#0a0a0a]">
-      <div className="text-white">Loading dashboard...</div>
-    </div>
-  ),
-});
+export default async function Home() {
+  let artemisData = null;
+  let error = null;
 
-export default function Home() {
-  return <X402Dashboard />;
+  try {
+    artemisData = await fetchArtemisData();
+  } catch (e) {
+    console.error('Failed to fetch Artemis data:', e);
+    error = 'Failed to load live data';
+  }
+
+  return <X402Dashboard artemisData={artemisData} error={error} />;
 }

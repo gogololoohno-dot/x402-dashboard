@@ -1,55 +1,44 @@
+"use client";
+
 import { useState } from "react"
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIMARY SOURCE: Artemis Terminal (adjusted/filtered data)
-// Artemis Google Sheet: gid=566090510 (REAL_VOLUME column)
-// Artemis Terminal screenshots: Mar 28 2026
-// Dune MCP used ONLY for: ERC-8004 on-chain registry data + facilitator
-//   confirmation where Artemis doesn't expose breakdowns
+// Data now fetched LIVE from Google Sheets via ISR (revalidates every 24h)
+// Fallback to static data if live fetch fails
 // ─────────────────────────────────────────────────────────────────────────────
 
-// DAILY REAL VOLUME ($USD) — exact Artemis Sheet values (adjusted, gamed stripped)
-// Note: These are already adjusted by Artemis. Dune raw values are NOT used.
-const volDaily = [
-  // Sep 2025 — sub-$120/day, genuine micropayment baseline
+// FALLBACK: Static data used when live fetch fails
+const fallbackVolDaily = [
   {d:"Sep 1",  v:29.6},  {d:"Sep 5",  v:85.0},  {d:"Sep 10", v:65.1},
   {d:"Sep 15", v:115.9}, {d:"Sep 17", v:104.0},  {d:"Sep 20", v:17.2},
   {d:"Sep 27", v:13.9},  {d:"Sep 30", v:35.8},
-  // Oct 1 spike — first major event (single large txn)
   {d:"Oct 1",  v:48266}, {d:"Oct 2",  v:263.9},  {d:"Oct 5",  v:121.7},
   {d:"Oct 13", v:294.3}, {d:"Oct 14", v:636.8},  {d:"Oct 19", v:689.5},
-  // Oct 21-31 — Token launch mania ($PING + meme tokens via x402)
   {d:"Oct 21", v:13808}, {d:"Oct 22", v:124301},  {d:"Oct 24", v:332206},
   {d:"Oct 25", v:378763},{d:"Oct 26", v:519012},  {d:"Oct 27", v:805775},
   {d:"Oct 28", v:549254},{d:"Oct 29", v:555493},  {d:"Oct 30", v:326799},
   {d:"Oct 31", v:112223},
-  // Nov 2025 — sustained elevated volume
   {d:"Nov 1",  v:241643},{d:"Nov 2",  v:351817},  {d:"Nov 3",  v:356487},
-  // Dec–Feb — cooldown period (estimated from Artemis terminal screenshots)
   {d:"Dec",    v:8500},  {d:"Jan",    v:6200},    {d:"Feb",    v:5800},
-  // Mar 2026 — recovery driven by Virtuals ACP + MPP launch
-  // Source: Artemis 7D chart screenshot (Mar 21-27 exact values)
   {d:"Mar 21", v:1100000},{d:"Mar 22", v:1100000},{d:"Mar 23", v:1500000},
   {d:"Mar 24", v:1700000},{d:"Mar 25", v:1000000},{d:"Mar 26", v:2400000},
   {d:"Mar 27", v:1800000},
 ]
 
-// DAILY TRANSACTIONS (K) — Artemis Terminal "Adjusted Agentic Payments Transactions"
-// Source: Artemis screenshot Image 1 (1M period view)
-const txDaily = [
+const fallbackTxDaily = [
   {d:"Sep '25", v:1.2},  {d:"Oct 1",  v:0.4},   {d:"Oct 16", v:8.6},
   {d:"Oct 22",  v:127.6},{d:"Oct 25", v:340.4},  {d:"Oct 27", v:288.5},
   {d:"Oct 29",  v:436.3},{d:"Oct 31", v:587.9},
   {d:"Nov 1",   v:267.0},{d:"Nov 2",  v:307.8},  {d:"Nov 3",  v:375.2},
-  {d:"Nov 14",  v:1980}, // Artemis real txns peak (not gamed)
+  {d:"Nov 14",  v:1980},
   {d:"Dec '25", v:18.0}, {d:"Jan '26",v:12.0},   {d:"Feb '26",v:8.2},
   {d:"Mar 7",   v:98},   {d:"Mar 14", v:178},    {d:"Mar 20", v:145},
   {d:"Mar 27",  v:88},
 ]
 
-// % GAMED — Artemis (their own adjusted metric)
-const gamedPct = [
+const fallbackGamedPct = [
   {d:"Oct '25",v:58},{d:"Nov '25",v:42},{d:"Dec '25",v:44},
   {d:"Jan '26",v:38},{d:"Feb '26",v:36},{d:"Mar 1",v:42},
   {d:"Mar 14",v:50},{d:"Mar 27",v:35.5},
@@ -219,10 +208,46 @@ const axTick={fontSize:9,fill:"var(--color-text-tertiary)",fontFamily:"var(--fon
 const grid=<CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-tertiary)" vertical={false}/>
 const tip={contentStyle:{background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-secondary)",borderRadius:"8px",fontSize:"11px",fontFamily:"var(--font-mono)"},cursor:{stroke:"var(--color-border-secondary)",strokeWidth:1}}
 
-export default function X402Dashboard() {
+export default function X402Dashboard({ artemisData, error }) {
   const [tab,setTab]=useState("Overview")
+
+  // Use live data if available, otherwise fallback to static
+  const volDaily = artemisData?.volume?.length > 0 ? artemisData.volume : fallbackVolDaily
+  const txDaily = artemisData?.txns?.length > 0 ? artemisData.txns.map(p => ({...p, v: p.v / 1000})) : fallbackTxDaily
+  const gamedPct = artemisData?.gamed?.length > 0 ? artemisData.gamed : fallbackGamedPct
+
+  // Snapshot data from live sheet
+  const snapshot = artemisData?.snapshot || null
+  const lastUpdated = artemisData?.lastUpdated ? new Date(artemisData.lastUpdated).toLocaleDateString() : null
+
+  // Format helpers
+  const formatNum = (n) => {
+    if (!n) return '0'
+    const num = parseFloat(String(n).replace(/,/g, ''))
+    if (isNaN(num)) return n
+    return num.toLocaleString(undefined, { maximumFractionDigits: 0 })
+  }
+  const formatCurrency = (n) => {
+    if (!n) return '$0'
+    const num = parseFloat(String(n).replace(/[$,]/g, ''))
+    if (isNaN(num)) return n
+    if (num >= 1000000) return `$${(num/1000000).toFixed(2)}M`
+    if (num >= 1000) return `$${(num/1000).toFixed(1)}K`
+    return `$${num.toFixed(2)}`
+  }
   return (
     <div style={{fontFamily:"var(--font-sans)",background:"var(--color-background-tertiary)",minHeight:"100vh"}}>
+      {/* Data Status Banner */}
+      {(artemisData || error) && (
+        <div style={{background:error ? "var(--color-background-danger)" : "var(--color-background-success)",borderBottom:`0.5px solid ${error ? "var(--color-border-danger)" : "var(--color-border-success)"}`,padding:"6px 24px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <p style={{margin:0,fontSize:"10px",fontFamily:"var(--font-mono)",color:error ? "var(--color-text-danger)" : "var(--color-text-success)"}}>
+            {error ? `⚠ ${error} — showing cached data` : `✓ LIVE DATA · Last updated: ${lastUpdated} · ISR revalidation: 24h`}
+          </p>
+          {artemisData?.volume?.length > 0 && (
+            <p style={{margin:0,fontSize:"10px",fontFamily:"var(--font-mono)",color:"var(--color-text-success)"}}>{artemisData.volume.length} data points loaded</p>
+          )}
+        </div>
+      )}
       {/* Header */}
       <div style={{background:"var(--color-background-primary)",borderBottom:"0.5px solid var(--color-border-tertiary)",padding:"16px 24px"}}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:"10px",marginBottom:"14px"}}>
@@ -253,14 +278,14 @@ export default function X402Dashboard() {
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:"10px"}}>
               {[
-                {l:"CUM. x402 BUYERS",    v:"365,067", s:"Artemis sheet (live)",        n:"Peak 31K in a single day (Oct '25)"},
-                {l:"CUM. x402 SELLERS",   v:"4,368",   s:"Artemis sheet (live)",        n:"Seller supply = binding constraint"},
-                {l:"x402 REAL VOL TODAY", v:"$1.79M",  s:"Artemis sheet Mar 28",        n:"Virtuals ACP drives 95%+"},
-                {l:"x402 CUM. VOLUME",    v:"$38.0M",  s:"Artemis sheet (live)",        n:"Adjusted, gamed stripped"},
-                {l:"x402 AVG TXN SIZE",   v:"$33.40",  s:"Artemis sheet Mar 28",        n:"Was $0.05 in Aug '25 baseline"},
-                {l:"x402 % GAMED TXNS",   v:"35.5%",   s:"Artemis sheet Mar 28",        n:"% Gamed Vol: 7.82% (much cleaner)"},
-                {l:"MPP TODAY",           v:"$1,961",  s:"Artemis sheet Mar 28",        n:"219 buyers · 16 sellers · 8.2% gamed"},
-                {l:"ERC-8004 AGENTS",     v:"88,500+", s:"All chains Mar 28 2026",      n:"BNB 44K · ETH 36K · Base 5K"},
+                {l:"CUM. x402 BUYERS",    v:snapshot ? formatNum(snapshot.x402.cumulativeBuyers) : "365,067", s:lastUpdated ? `Live · ${lastUpdated}` : "Artemis sheet (live)",        n:"Peak 31K in a single day (Oct '25)"},
+                {l:"CUM. x402 SELLERS",   v:snapshot ? formatNum(snapshot.x402.cumulativeSellers) : "4,368",   s:lastUpdated ? `Live · ${lastUpdated}` : "Artemis sheet (live)",        n:"Seller supply = binding constraint"},
+                {l:"x402 REAL VOL TODAY", v:snapshot ? formatCurrency(snapshot.x402.realVolume) : "$1.79M",  s:lastUpdated ? `Live · ${lastUpdated}` : "Artemis sheet",        n:"Virtuals ACP drives 95%+"},
+                {l:"x402 CUM. VOLUME",    v:snapshot ? formatCurrency(snapshot.x402.cumulativeVolume) : "$38.0M",  s:lastUpdated ? `Live · ${lastUpdated}` : "Artemis sheet (live)",        n:"Adjusted, gamed stripped"},
+                {l:"x402 AVG TXN SIZE",   v:snapshot ? `$${parseFloat(snapshot.x402.avgTxnSize).toFixed(2)}` : "$33.40",  s:lastUpdated ? `Live · ${lastUpdated}` : "Artemis sheet",        n:"Was $0.05 in Aug '25 baseline"},
+                {l:"x402 % GAMED TXNS",   v:snapshot ? snapshot.x402.percentGamedTxns : "35.5%",   s:lastUpdated ? `Live · ${lastUpdated}` : "Artemis sheet",        n:`% Gamed Vol: ${snapshot ? snapshot.x402.percentGamedVolume : "7.82%"}`},
+                {l:"MPP TODAY",           v:snapshot ? formatCurrency(snapshot.mpp.realVolume) : "$1,961",  s:lastUpdated ? `Live · ${lastUpdated}` : "Artemis sheet",        n:`${snapshot ? formatNum(snapshot.mpp.buyers) : "219"} buyers · ${snapshot ? formatNum(snapshot.mpp.sellers) : "16"} sellers · ${snapshot ? snapshot.mpp.percentGamedTxns : "8.2%"} gamed`},
+                {l:"ERC-8004 AGENTS",     v:"88,500+", s:"All chains",      n:"BNB 44K · ETH 36K · Base 5K"},
               ].map((m,i)=>(
                 <div key={i} style={{background:"var(--color-background-secondary)",borderRadius:"var(--border-radius-md)",padding:"12px 14px"}}>
                   <p style={{margin:"0 0 5px",fontSize:"8px",fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)",letterSpacing:"0.06em"}}>{m.l}</p>
@@ -468,7 +493,7 @@ export default function X402Dashboard() {
                 <p style={{margin:"0 0 2px",fontSize:"10px",fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)"}}>Source: Artemis Terminal "Top x402 Servers (Last 30 Days)" · Mar 28 2026 exact screenshot</p>
                 <p style={{margin:0,fontSize:"11px",color:"var(--color-text-secondary)"}}>Gamed % colour: red {">"}60%, yellow 30–60%, green {"<"}30%.</p>
               </div>
-              <button onClick={()=>sendPrompt("Which top x402 servers represent genuine micropayment adoption vs noise? Map to investable tokens.")} style={{fontSize:"11px",padding:"5px 10px"}}>Map to tokens ↗</button>
+              <button onClick={()=>window.open("https://docs.google.com/spreadsheets/d/1z2EtDU6YXownVQkX5VL2tqvbo2TcOv4BJydraXVzcnE","_blank")} style={{fontSize:"11px",padding:"5px 10px"}}>View data ↗</button>
             </div>
             <Card style={{overflow:"hidden"}}>
               <div style={{overflowX:"auto"}}>
@@ -511,7 +536,7 @@ export default function X402Dashboard() {
           <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"8px"}}>
               <p style={{margin:0,fontSize:"10px",fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)"}}>Prices: CoinGecko / CMC · Mar 27–28 2026 · Facilitator confirmation from Artemis adjusted data · Not financial advice</p>
-              <button onClick={()=>sendPrompt("Rank VIRTUAL, PAYAI, KITE, DREAMS, SERV, DEXTER by conviction for 6-month hold. Use Artemis adjusted data as the primary signal — which have confirmed presence in Artemis adjusted facilitator view?")} style={{fontSize:"11px",padding:"5px 10px"}}>Rank by conviction ↗</button>
+              <button onClick={()=>window.open("https://docs.google.com/spreadsheets/d/1z2EtDU6YXownVQkX5VL2tqvbo2TcOv4BJydraXVzcnE","_blank")} style={{fontSize:"11px",padding:"5px 10px"}}>View data ↗</button>
             </div>
             {tokens.map((t,i)=>(
               <Card key={i} style={{padding:"14px 20px"}}>
@@ -591,7 +616,7 @@ export default function X402Dashboard() {
                   <p style={{margin:0,fontSize:"11px",color:"var(--color-text-secondary)"}}>Source: 8004scan.io/leaderboard screenshot (Mar 28 2026) · All chains · Score = 8004scan composite quality metric, NOT raw feedback count</p>
                   <p style={{margin:"4px 0 0",fontSize:"10px",color:"var(--color-text-tertiary)",fontFamily:"var(--font-mono)"}}>Cross-verification: Minara AI #9 with 142 feedback confirmed independently by Dune on-chain query (agent ID #6888, 120 unique submitters). x402 ✓ = confirmed x402 endpoint in agent registration metadata.</p>
                 </div>
-                <button onClick={()=>sendPrompt("Which ERC-8004 agents show the strongest signals of genuine utility vs gaming? What would we need to see to upgrade conviction on any of them?")} style={{fontSize:"11px",padding:"5px 10px",flexShrink:0}}>Deep dive ↗</button>
+                <button onClick={()=>window.open("https://8004scan.io/leaderboard","_blank")} style={{fontSize:"11px",padding:"5px 10px",flexShrink:0}}>8004scan ↗</button>
               </div>
               <div style={{overflowX:"auto"}}>
                 {erc8004Agents.map((a,i)=>(
@@ -643,7 +668,7 @@ export default function X402Dashboard() {
           <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"8px"}}>
               <p style={{margin:0,fontSize:"10px",fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)"}}>Sources: Artemis Terminal · Artemis Sheet · CoinDesk · Bankless · CryptoRank · Dune MCP · Mar 28 2026</p>
-              <button onClick={()=>sendPrompt("Synthesise all x402 + ERC-8004 signals into a 3-bullet investment memo — bull, bear, and single most important catalyst to watch.")} style={{fontSize:"11px",padding:"5px 10px"}}>Investment memo ↗</button>
+              <button onClick={()=>window.open("https://docs.google.com/spreadsheets/d/1z2EtDU6YXownVQkX5VL2tqvbo2TcOv4BJydraXVzcnE","_blank")} style={{fontSize:"11px",padding:"5px 10px"}}>View data ↗</button>
             </div>
             <Card style={{overflow:"hidden"}}>
               {signals.map((s,i)=>(
